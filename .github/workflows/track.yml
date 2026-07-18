@@ -2,8 +2,8 @@ name: Track Game Versions
 
 on:
   schedule:
-    # 每天 UTC 16:00（北京时间次日 00:00）运行一次
-    - cron: '0 16 * * *'
+    # 每天 UTC 17:30（北京时间次日 01:30）运行一次
+    - cron: '30 17 * * *'
   workflow_dispatch:
     inputs:
       config:
