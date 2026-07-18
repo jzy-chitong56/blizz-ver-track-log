@@ -1,0 +1,28 @@
+# Warcraft III Public Test Realm (Internal) 版本追踪配置
+# 字段说明：
+#   regex:    从 HTML 中提取该字段原始值的正则（必须有一个捕获组）
+#   is_time:  true 表示该字段是时间，会按 source/timezone/format 处理
+#   source:   时间的原始来源类型，目前支持:
+#             - unix_timestamp_utc: Unix 时间戳（UTC）
+#             - raw:                原样使用
+#   timezone: 目标时区（IANA 名称），如 Asia/Shanghai
+#   format:   strftime 输出格式
+#   role:     字段角色，role=version 的字段用于判断是否有新数据
+# log_format: 最终写入日志的格式，可用 {字段名} 引用上面定义的字段
+
+name: "Warcraft III Public Test Realm (Internal)"
+url: "https://blizztrack.com/view/w3d?type=versions"
+log_file: "Warcraft III Public Test Realm (Internal)"
+log_format: "{time}    {version}"   # 时间和版本号之间 4 个空格
+
+fields:
+  time:
+    regex: '<time class="font-semibold" datetime="(\d+)">'
+    is_time: true
+    source: unix_timestamp_utc
+    timezone: "Asia/Shanghai"
+    format: "%Y-%m-%d %H:%M"
+
+  version:
+    regex: '<div class="text-sm font-medium text-gray-600 truncate font-semibold">\s*(\d+\.\d+\.\d+\.\d+)'
+    role: version

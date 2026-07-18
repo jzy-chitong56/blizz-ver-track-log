@@ -1,9 +1,15 @@
-name: Track Warcraft III PTR Version
+name: Track Game Versions
 
 on:
   schedule:
+    # 每天 UTC 0:00（北京时间 08:00）运行所有配置
     - cron: '0 0 * * *'
   workflow_dispatch:
+    inputs:
+      config:
+        description: '单独运行某个配置（填配置文件名，不含扩展名，如 w3_ptr_internal）。留空则运行所有配置'
+        required: false
+        default: ''
 
 jobs:
   track:
@@ -21,10 +27,17 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests pyyaml
 
       - name: Run tracking script
-        run: python track.py
+        env:
+          CONFIG_INPUT: ${{ github.event.inputs.config }}
+        run: |
+          if [ -n "$CONFIG_INPUT" ]; then
+            python track.py --config "configs/${CONFIG_INPUT}.yaml"
+          else
+            python track.py
+          fi
 
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
