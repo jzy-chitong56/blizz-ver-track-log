@@ -14,7 +14,9 @@ import requests
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.join(BASE_DIR, "configs")
+LOG_DIR = os.path.join(BASE_DIR, "Ver Logs")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
@@ -59,15 +61,22 @@ def parse_time(raw_value, field_config):
     raise ValueError(f"Unsupported time source: {source}")
 
 
+def resolve_log_file(log_file):
+    """解析日志文件路径：如果不是绝对路径，则相对于 LOG_DIR"""
+    if os.path.isabs(log_file):
+        return log_file
+    return os.path.join(LOG_DIR, log_file)
+
+
 def read_log(log_file):
-    if os.path.exists(log_file):
-        with open(log_file, "r", encoding="utf-8") as f:
+    log_path = resolve_log_file(log_file)
+    if os.path.exists(log_path):
+        with open(log_path, "r", encoding="utf-8") as f:
             return f.read()
     return ""
 
 
 def has_new_data(log_content, version_value):
-    """根据版本号判断是否有新数据：取日志第一行，看是否包含当前版本号"""
     if not log_content:
         return True
     first_line = log_content.strip().split("\n")[0]
@@ -75,9 +84,10 @@ def has_new_data(log_content, version_value):
 
 
 def write_log(log_file, log_content, entry):
-    """新条目写入第一行，原内容下移"""
+    log_path = resolve_log_file(log_file)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
     new_content = f"{entry}\n{log_content}" if log_content else entry
-    with open(log_file, "w", encoding="utf-8") as f:
+    with open(log_path, "w", encoding="utf-8") as f:
         f.write(new_content)
 
 
