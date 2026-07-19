@@ -2,7 +2,7 @@
 """
 BlizzTrack 多游戏版本追踪脚本
 配置驱动：每个游戏一个 YAML 配置文件，放在 configs/ 目录下
-支持单独运行某个配置，或一次运行所有配置
+支持同时追踪同一游戏的多个 section（如 current / previous），按时间顺序合并写入日志
 """
 import argparse
 import os
@@ -35,7 +35,7 @@ def fetch_page(url):
 
 
 def parse_field_raw(html, field_config):
-    """根据字段的 regex 从 HTML 中提取原始字符串"""
+    """根据字段的 regex 从 HTML 中提取原始字符串（只取第一个匹配）"""
     regex = field_config["regex"]
     match = re.search(regex, html)
     if not match:
@@ -44,19 +44,20 @@ def parse_field_raw(html, field_config):
 
 
 def parse_time(raw_value, field_config):
-    """将时间原始值转换为配置的目标时区和格式"""
+    """将时间原始值转换为目标格式，并返回 (time_str, sort_key)"""
     source = field_config.get("source", "raw")
+    fmt = field_config.get("format", "%Y-%m-%d %H:%M")
 
     if source == "unix_timestamp_utc":
         timestamp = int(raw_value)
         dt = datetime.fromtimestamp(timestamp, timezone.utc)
         tz_name = field_config.get("timezone", "Asia/Shanghai")
         dt = dt.astimezone(ZoneInfo(tz_name))
-        fmt = field_config.get("format", "%Y-%m-%d %H:%M")
-        return dt.strftime(fmt)
+        return dt.strftime(fmt), dt
 
     if source == "raw":
-        return raw_value
+        dt = datetime.strptime(raw_value, fmt)
+        return raw_value, dt
 
     raise ValueError(f"Unsupported time source: {source}")
 
@@ -68,27 +69,76 @@ def resolve_log_file(log_file):
     return os.path.join(LOG_DIR, log_file)
 
 
-def read_log(log_file):
+def parse_log_line(line, time_format):
+    """从日志行解析出 (time_str, version, sort_key)，解析失败返回 None"""
+    line = line.strip()
+    if not line:
+        return None
+
+    # 按时间格式长度提取时间字符串
+    fmt_len = len(datetime.now().strftime(time_format))
+    if len(line) < fmt_len:
+        return None
+
+    time_str = line[:fmt_len]
+    try:
+        sort_key = datetime.strptime(time_str, time_format)
+    except ValueError:
+        return None
+
+    version = line[fmt_len:].strip()
+    return time_str, version, sort_key
+
+
+def read_log(log_file, time_format):
+    """读取日志，返回 [(time_str, version, sort_key), ...]，按文件中的降序排列"""
     log_path = resolve_log_file(log_file)
-    if os.path.exists(log_path):
-        with open(log_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return ""
+    if not os.path.exists(log_path):
+        return []
+
+    entries = []
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            parsed = parse_log_line(line, time_format)
+            if parsed:
+                entries.append(parsed)
+    return entries
 
 
-def has_new_data(log_content, version_value):
-    if not log_content:
-        return True
-    first_line = log_content.strip().split("\n")[0]
-    return version_value not in first_line
-
-
-def write_log(log_file, log_content, entry):
+def write_log(log_file, entries, log_format):
+    """按时间降序写入日志"""
     log_path = resolve_log_file(log_file)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    new_content = f"{entry}\n{log_content}" if log_content else entry
+
+    # 去重并按时间降序排序
+    seen = set()
+    unique_entries = []
+    for time_str, version, sort_key in entries:
+        key = (time_str, version)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_entries.append((time_str, version, sort_key))
+
+    unique_entries.sort(key=lambda x: x[2], reverse=True)
+
+    lines = []
+    for time_str, version, _ in unique_entries:
+        line = log_format.format(time=time_str, version=version)
+        lines.append(line)
+
     with open(log_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
+        f.write("\n".join(lines))
+        if lines:
+            f.write("\n")
+
+
+def parse_section(html, section_config, time_format):
+    """解析单个 section，返回 (time_str, version, sort_key)"""
+    raw_time = parse_field_raw(html, section_config["time"])
+    time_str, sort_key = parse_time(raw_time, section_config["time"])
+    version = parse_field_raw(html, section_config["version"]).strip()
+    return time_str, version, sort_key
 
 
 def track(config):
@@ -97,34 +147,49 @@ def track(config):
     print(f"=== Tracking: {name} ===")
 
     html = fetch_page(config["url"])
-
-    fields = {}
-    version_value = None
-    for field_name, field_config in config["fields"].items():
-        raw_value = parse_field_raw(html, field_config)
-        if field_config.get("is_time", False):
-            fields[field_name] = parse_time(raw_value, field_config)
-        else:
-            fields[field_name] = raw_value
-        # 用 role=version 标记的字段作为判断新数据依据
-        if field_config.get("role") == "version":
-            version_value = raw_value
-
-    if version_value is None:
-        # 兜底：把名为 version 的字段当作版本号
-        version_value = fields.get("version", "")
-
     log_format = config.get("log_format", "{time}    {version}")
-    entry = log_format.format(**fields)
+    time_format = config.get("time_format", "%Y-%m-%d %H:%M")
 
+    # 解析所有 section 的新条目
+    new_entries = []
+    sections = config.get("sections", {})
+    if not sections:
+        # 兼容旧版配置（直接使用 fields）
+        fields = config.get("fields", {})
+        if "time" in fields and "version" in fields:
+            sections = {"main": {"time": fields["time"], "version": fields["version"]}}
+
+    for section_name, section_config in sections.items():
+        try:
+            entry = parse_section(html, section_config, time_format)
+            new_entries.append(entry)
+            print(f"  [{section_name}] {entry[0]}    {entry[1]}")
+        except Exception as e:
+            print(f"  [{section_name}] 解析失败: {e}")
+
+    if not new_entries:
+        print("没有解析到任何条目，跳过")
+        return
+
+    # 读取已有日志
     log_file = config["log_file"]
-    log_content = read_log(log_file)
+    existing_entries = read_log(log_file, time_format)
 
-    if has_new_data(log_content, version_value):
-        write_log(log_file, log_content, entry)
-        print(f"Added new entry: {entry}")
+    # 合并新旧条目
+    all_entries = existing_entries + new_entries
+
+    # 写入日志（内部会按时间降序排序并去重）
+    write_log(log_file, all_entries, log_format)
+
+    # 输出本次新增条目
+    existing_keys = {(e[0], e[1]) for e in existing_entries}
+    added = [e for e in new_entries if (e[0], e[1]) not in existing_keys]
+    if added:
+        print(f"Added {len(added)} new entr{'y' if len(added) == 1 else 'ies'}:")
+        for time_str, version, _ in sorted(added, key=lambda x: x[2], reverse=True):
+            print(f"  {time_str}    {version}")
     else:
-        print(f"No new version detected. Current: {version_value}")
+        print("No new entries detected")
 
 
 def run_one(config_path):

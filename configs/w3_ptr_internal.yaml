@@ -1,28 +1,41 @@
 # Warcraft III Public Test Realm (Internal) 版本追踪配置
-# 字段说明：
-#   regex:    从 HTML 中提取该字段原始值的正则（必须有一个捕获组）
-#   is_time:  true 表示该字段是时间，会按 source/timezone/format 处理
-#   source:   时间的原始来源类型，目前支持:
-#             - unix_timestamp_utc: Unix 时间戳（UTC）
-#             - raw:                原样使用
-#   timezone: 目标时区（IANA 名称），如 Asia/Shanghai
-#   format:   strftime 输出格式
-#   role:     字段角色，role=version 的字段用于判断是否有新数据
-# log_format: 最终写入日志的格式，可用 {字段名} 引用上面定义的字段
+# 每个 section 对应网页上的一个数据块（如 Current Data / Previous Data）
+# 程序会同时抓取所有 section，把未收录的版本按时间顺序合并到日志中
+#
+# section 字段说明：
+#   time.regex:    提取时间原始值的正则（必须有一个捕获组）
+#   time.is_time:  true 表示需要按 source/timezone/format 处理
+#   time.source:   时间原始来源，支持 unix_timestamp_utc / raw
+#   time.timezone: 目标时区（IANA 名称）
+#   time.format:   strftime 输出格式
+#   version.regex: 提取版本号的正则（只取第一个匹配，因此多服务器时只会取第一个大区）
+#
+# log_format: 最终写入日志的格式，可用 {time} / {version}
+# time_format: 与 time.format 一致，用于解析已有日志进行排序和去重
 
 name: "Warcraft III Public Test Realm (Internal)"
 url: "https://blizztrack.com/view/w3d?type=versions"
 log_file: "Warcraft III Public Test Realm (Internal)"
 log_format: "{time}    {version}"   # 时间和版本号之间 4 个空格
+time_format: "%Y-%m-%d %H:%M"
 
-fields:
-  time:
-    regex: '<time class="font-semibold" datetime="(\d+)">'
-    is_time: true
-    source: unix_timestamp_utc
-    timezone: "Asia/Shanghai"
-    format: "%Y-%m-%d %H:%M"
+sections:
+  current:
+    time:
+      regex: 'Current Data[\s\S]*?Indexed <time class="font-semibold" datetime="(\d+)">'
+      is_time: true
+      source: unix_timestamp_utc
+      timezone: "Asia/Shanghai"
+      format: "%Y-%m-%d %H:%M"
+    version:
+      regex: 'Current Data[\s\S]*?<div class="text-sm font-medium text-gray-600 truncate font-semibold">\s*(\d+\.\d+\.\d+\.\d+)'
 
-  version:
-    regex: '<div class="text-sm font-medium text-gray-600 truncate font-semibold">\s*(\d+\.\d+\.\d+\.\d+)'
-    role: version
+  previous:
+    time:
+      regex: 'Previous Data[\s\S]*?Indexed <time class="font-semibold" datetime="(\d+)">'
+      is_time: true
+      source: unix_timestamp_utc
+      timezone: "Asia/Shanghai"
+      format: "%Y-%m-%d %H:%M"
+    version:
+      regex: 'Previous Data[\s\S]*?<div class="text-sm font-medium text-gray-600 truncate font-semibold">\s*(\d+\.\d+\.\d+\.\d+)'
