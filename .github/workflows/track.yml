@@ -2,7 +2,7 @@ name: Track Game Versions
 
 on:
   schedule:
-    # 每天 UTC 12:30（北京时间 20:30）运行一次
+    # Daily at UTC 12:30 (Beijing 20:30)
     - cron: '30 12 * * *'
   workflow_dispatch:
     inputs:
