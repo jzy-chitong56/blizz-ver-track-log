@@ -1,9 +1,11 @@
 name: Track Game Versions
 
-on:
+"on":
   schedule:
     # Daily at UTC 15:00 (Beijing 23:00)
     - cron: '0 15 * * *'
+    # Daily at UTC 15:30 (Beijing 23:30) - backup
+    - cron: '30 15 * * *'
   workflow_dispatch:
     inputs:
       config:
