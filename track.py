@@ -52,12 +52,12 @@ def parse_time(raw_value, field_config):
         timestamp = int(raw_value)
         dt = datetime.fromtimestamp(timestamp, timezone.utc)
         tz_name = field_config.get("timezone", "Asia/Shanghai")
-        dt = dt.astimezone(ZoneInfo(tz_name))
-        return dt.strftime(fmt), dt
+        dt_local = dt.astimezone(ZoneInfo(tz_name))
+        return dt_local.strftime(fmt), timestamp
 
     if source == "raw":
         dt = datetime.strptime(raw_value, fmt)
-        return raw_value, dt
+        return raw_value, dt.timestamp()
 
     raise ValueError(f"Unsupported time source: {source}")
 
@@ -75,14 +75,14 @@ def parse_log_line(line, time_format):
     if not line:
         return None
 
-    # 按时间格式长度提取时间字符串
     fmt_len = len(datetime.now().strftime(time_format))
     if len(line) < fmt_len:
         return None
 
     time_str = line[:fmt_len]
     try:
-        sort_key = datetime.strptime(time_str, time_format)
+        dt = datetime.strptime(time_str, time_format)
+        sort_key = dt.replace(tzinfo=timezone.utc).timestamp()
     except ValueError:
         return None
 
