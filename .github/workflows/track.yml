@@ -2,12 +2,8 @@ name: Track Game Versions
 
 on:
   schedule:
-    # Daily at UTC 15:00 (Beijing 23:00)
-    - cron: '0 15 * * *'
-    # Daily at UTC 15:30 (Beijing 23:30) - backup
-    - cron: '30 15 * * *'
-    # Daily at UTC 16:00 (Beijing 00:00 next day) - backup
-    - cron: '0 16 * * *'
+    # 自动触发于 UTC 3:00 (北京时间 11:00) ， 同时存在 cron-job.org 定时触发 ， 双重保障
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
