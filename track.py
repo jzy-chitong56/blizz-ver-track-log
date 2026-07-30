@@ -79,7 +79,7 @@ def resolve_log_file(log_file):
     return os.path.join(LOG_DIR, log_file)
 
 
-def parse_log_line(line, time_format):
+def parse_log_line(line, time_format, tz_name="Asia/Shanghai"):
     """从日志行解析出 (time_str, version, sort_key)，解析失败返回 None"""
     line = line.strip()
     if not line:
@@ -92,7 +92,9 @@ def parse_log_line(line, time_format):
     time_str = line[:fmt_len]
     try:
         dt = datetime.strptime(time_str, time_format)
-        sort_key = dt.replace(tzinfo=timezone.utc).timestamp()
+        # 日志里的时间是目标时区（如北京时间），不是 UTC
+        dt_localized = dt.replace(tzinfo=ZoneInfo(tz_name))
+        sort_key = dt_localized.timestamp()
     except ValueError:
         return None
 
