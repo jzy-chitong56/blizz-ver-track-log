@@ -122,13 +122,16 @@ def write_log(log_file, entries, log_format):
     log_path = resolve_log_file(log_file)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    # 按版本号去重，保留首次出现的时间（sort_key 最小的）
-    first_seen = {}
+    # 按 (时间, 版本号) 去重，同一时间同一版本只保留一条
+    # 不同时间即使版本号相同也都保留（网站可能在不同时间推送了同一版本）
+    seen = set()
+    unique_entries = []
     for time_str, version, sort_key in entries:
-        if version not in first_seen or sort_key < first_seen[version][2]:
-            first_seen[version] = (time_str, version, sort_key)
-
-    unique_entries = list(first_seen.values())
+        key = (time_str, version)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_entries.append((time_str, version, sort_key))
 
     unique_entries.sort(key=lambda x: x[2], reverse=True)
 
@@ -191,9 +194,9 @@ def track(config):
     # 写入日志（内部会按时间降序排序并去重）
     write_log(log_file, all_entries, log_format)
 
-    # 输出本次新增条目（按版本号去重判断）
-    existing_versions = {e[1] for e in existing_entries}
-    added = [e for e in new_entries if e[1] not in existing_versions]
+    # 输出本次新增条目（按时间+版本号判断）
+    existing_keys = {(e[0], e[1]) for e in existing_entries}
+    added = [e for e in new_entries if (e[0], e[1]) not in existing_keys]
     if added:
         print(f"Added {len(added)} new entr{'y' if len(added) == 1 else 'ies'}:")
         for time_str, version, _ in sorted(added, key=lambda x: x[2], reverse=True):
