@@ -9,6 +9,8 @@ import os
 import re
 import glob
 import sys
+import time
+import random
 import yaml
 import requests
 from datetime import datetime, timezone
@@ -28,8 +30,16 @@ def load_config(config_path):
 
 
 def fetch_page(url):
-    headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, headers=headers, timeout=30)
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    # 添加随机参数绕过 CDN/代理缓存
+    sep = "&" if "?" in url else "?"
+    nocache_url = f"{url}{sep}_nocache={int(time.time() * 1000)}_{random.randint(1000, 9999)}"
+    response = requests.get(nocache_url, headers=headers, timeout=30)
     response.raise_for_status()
     return response.text
 
