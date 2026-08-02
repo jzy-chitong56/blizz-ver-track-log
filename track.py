@@ -36,12 +36,22 @@ def fetch_page(url):
         "Pragma": "no-cache",
         "Expires": "0",
     }
-    # 添加随机参数绕过 CDN/代理缓存
     sep = "&" if "?" in url else "?"
     nocache_url = f"{url}{sep}_nocache={int(time.time() * 1000)}_{random.randint(1000, 9999)}"
     response = requests.get(nocache_url, headers=headers, timeout=30)
     response.raise_for_status()
     return response.text
+
+
+def fetch_json(url):
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+    }
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.json()
 
 
 def parse_field_raw(html, field_config):
@@ -154,47 +164,96 @@ def parse_section(html, section_config, time_format):
     return time_str, version, sort_key
 
 
+def fetch_from_api(config, time_format):
+    """从 API 获取版本数据，返回 [(time_str, version, sort_key), ...]"""
+    tact = config["tact"]
+    tz_name = config.get("timezone", "Asia/Shanghai")
+
+    # 1. 获取最新版本（Current Data）
+    latest_url = f"https://blizztrack.com/api/manifest/{tact}/versions"
+    latest_data = fetch_json(latest_url)
+    result = latest_data["result"]
+
+    entries = []
+
+    # 解析最新版本
+    if result["data"]:
+        # 取第一个 region（和之前 HTML 抓取逻辑一致：分区时取第一个）
+        first_region = result["data"][0]
+        version = first_region["version_name"].strip()
+        created_at = result["created_at"]  # ISO 格式 UTC 时间
+        dt_utc = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        dt_local = dt_utc.astimezone(ZoneInfo(tz_name))
+        time_str = dt_local.strftime(time_format)
+        sort_key = dt_utc.timestamp()
+        entries.append((time_str, version, sort_key))
+        print(f"  [current] {time_str}    {version}")
+
+    # 2. 获取上一个版本（Previous Data）——从 seqn 列表取第二个
+    seqn_url = f"https://blizztrack.com/api/manifest/{tact}/seqn?file=versions&per_page=2"
+    seqn_data = fetch_json(seqn_url)
+    results = seqn_data["result"]["results"]
+
+    if len(results) >= 2:
+        prev_seqn = results[1]
+        prev_ver_url = f"https://blizztrack.com/api/manifest/{tact}/versions?seqn={prev_seqn['seqn']}"
+        try:
+            prev_ver_data = fetch_json(prev_ver_url)
+            prev_result = prev_ver_data["result"]
+            if prev_result["data"]:
+                first_region = prev_result["data"][0]
+                version = first_region["version_name"].strip()
+                created_at = prev_result["created_at"]
+                dt_utc = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                dt_local = dt_utc.astimezone(ZoneInfo(tz_name))
+                time_str = dt_local.strftime(time_format)
+                sort_key = dt_utc.timestamp()
+                entries.append((time_str, version, sort_key))
+                print(f"  [previous] {time_str}    {version}")
+        except Exception as e:
+            print(f"  [previous] 获取失败: {e}")
+
+    return entries
+
+
 def track(config):
     """执行单个游戏的追踪流程"""
     name = config["name"]
     print(f"=== Tracking: {name} ===")
 
-    html = fetch_page(config["url"])
     log_format = config.get("log_format", "{time}    {version}")
     time_format = config.get("time_format", "%Y-%m-%d %H:%M")
 
-    # 解析所有 section 的新条目
-    new_entries = []
-    sections = config.get("sections", {})
-    if not sections:
-        # 兼容旧版配置（直接使用 fields）
-        fields = config.get("fields", {})
-        if "time" in fields and "version" in fields:
-            sections = {"main": {"time": fields["time"], "version": fields["version"]}}
+    source = config.get("source", "html")
 
-    for section_name, section_config in sections.items():
-        try:
-            entry = parse_section(html, section_config, time_format)
-            new_entries.append(entry)
-            print(f"  [{section_name}] {entry[0]}    {entry[1]}")
-        except Exception as e:
-            print(f"  [{section_name}] 解析失败: {e}")
+    if source == "api":
+        new_entries = fetch_from_api(config, time_format)
+    else:
+        html = fetch_page(config["url"])
+        new_entries = []
+        sections = config.get("sections", {})
+        if not sections:
+            fields = config.get("fields", {})
+            if "time" in fields and "version" in fields:
+                sections = {"main": {"time": fields["time"], "version": fields["version"]}}
+
+        for section_name, section_config in sections.items():
+            try:
+                entry = parse_section(html, section_config, time_format)
+                new_entries.append(entry)
+                print(f"  [{section_name}] {entry[0]}    {entry[1]}")
+            except Exception as e:
+                print(f"  [{section_name}] 解析失败: {e}")
 
     if not new_entries:
         print("没有解析到任何条目，跳过")
         return
 
-    # 读取已有日志
     log_file = config["log_file"]
     existing_entries = read_log(log_file, time_format)
-
-    # 合并新旧条目
     all_entries = existing_entries + new_entries
-
-    # 写入日志（内部会按时间降序排序并去重）
     write_log(log_file, all_entries, log_format)
 
-    # 输出本次新增条目（按时间+版本号判断）
     existing_keys = {(e[0], e[1]) for e in existing_entries}
     added = [e for e in new_entries if (e[0], e[1]) not in existing_keys]
     if added:
