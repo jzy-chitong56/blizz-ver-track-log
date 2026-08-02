@@ -16,6 +16,7 @@ name: "Warcraft III Public Test Realm (Internal)"
 source: "api"
 tact: "w3d"
 timezone: "Asia/Shanghai"
+api_pages: 3
 log_file: "Warcraft III Public Test Realm (Internal)"
 log_format: "{time}    {version}"
 time_format: "%Y-%m-%d %H:%M"

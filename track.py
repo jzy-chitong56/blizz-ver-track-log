@@ -187,33 +187,33 @@ def fetch_versions_by_seqn(tact, seqn, tz_name, time_format):
 def fetch_from_api(config, time_format):
     """
     从 API 获取版本数据，返回 [(time_str, version, sort_key), ...]
-    策略：拉取 seqn 列表，逐个获取版本号，自动补全日志中缺失的历史版本
+    策略：翻页拉取 seqn 列表，逐个获取版本号，自动补全日志中缺失的历史版本
     """
     tact = config["tact"]
     tz_name = config.get("timezone", "Asia/Shanghai")
+    pages = config.get("api_pages", 3)
 
     entries = []
     seen_versions = set()
 
-    # 拉取最新一页 seqn（10条）
-    seqn_url = f"https://blizztrack.com/api/manifest/{tact}/seqn?file=versions&per_page=10"
-    seqn_data = fetch_json(seqn_url)
-    seqn_results = seqn_data["result"]["results"]
+    for page in range(1, pages + 1):
+        seqn_url = f"https://blizztrack.com/api/manifest/{tact}/seqn?file=versions&per_page=10&page={page}"
+        seqn_data = fetch_json(seqn_url)
+        seqn_results = seqn_data["result"]["results"]
+        if not seqn_results:
+            break
 
-    # 逐个获取版本号
-    count = 0
-    for seqn_item in seqn_results:
-        seqn = seqn_item["seqn"]
-        entry = fetch_versions_by_seqn(tact, seqn, tz_name, time_format)
-        if entry and entry[1] not in seen_versions:
-            seen_versions.add(entry[1])
-            entries.append(entry)
-            count += 1
-            if count <= 2:
-                label = "current" if count == 1 else "previous"
-                print(f"  [{label}] {entry[0]}    {entry[1]}")
+        for seqn_item in seqn_results:
+            seqn = seqn_item["seqn"]
+            entry = fetch_versions_by_seqn(tact, seqn, tz_name, time_format)
+            if entry and entry[1] not in seen_versions:
+                seen_versions.add(entry[1])
+                entries.append(entry)
+                if len(entries) <= 2:
+                    label = "current" if len(entries) == 1 else "previous"
+                    print(f"  [{label}] {entry[0]}    {entry[1]}")
 
-    print(f"  从 API 拉取了 {len(entries)} 个历史版本")
+    print(f"  从 API 拉取了 {len(entries)} 个历史版本（{pages} 页）")
     return entries
 
 
