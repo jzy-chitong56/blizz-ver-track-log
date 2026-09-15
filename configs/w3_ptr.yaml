@@ -1,0 +1,11 @@
+# Warcraft III Public Test Realm 版本追踪配置
+# 公开测试服（tact: w3t）
+
+name: "Warcraft III Public Test Realm"
+source: "api"
+tact: "w3t"
+timezone: "Asia/Shanghai"
+api_pages: 3
+log_file: "Warcraft III Public Test Realm"
+log_format: "{time}    {version}"
+time_format: "%Y-%m-%d %H:%M"
